@@ -1,0 +1,6 @@
+[core]
+    remote = ycs3
+['remote "ycs3"']
+    url = s3://food-dfcvdasd/dvc
+    endpointurl = https://storage.yandexcloud.net
+    region = ru-central1

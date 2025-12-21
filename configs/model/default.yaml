@@ -1,0 +1,21 @@
+# Model configuration
+models_dir: "artifacts/models"
+
+popularity:
+  enabled: true
+
+cooccurrence:
+  enabled: true
+  min_support: 2
+
+item2vec:
+  enabled: true
+  vector_size: 64
+  window: 5
+  min_count: 2
+  epochs: 20
+  sg: 1  # Skip-gram
+  workers: 4
+
+evaluation:
+  k_values: [5, 10, 20]

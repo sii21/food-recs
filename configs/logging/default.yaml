@@ -1,0 +1,7 @@
+# MLflow logging configuration
+mlflow:
+  tracking_uri: "mlruns"
+  experiment_name: "food-recs"
+  log_models: true
+
+plots_dir: "artifacts/plots"

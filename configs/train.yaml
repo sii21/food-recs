@@ -1,0 +1,9 @@
+# Training configuration
+defaults:
+  - data: default
+  - model: default
+  - logging: default
+  - _self_
+
+seed: 42
+test_ratio: 0.2

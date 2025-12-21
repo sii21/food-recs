@@ -1,0 +1,7 @@
+# Data configuration
+data_path: "data/orders_with_status.csv"
+separator: ";"
+success_statuses:
+  - "Заказ доставлен"
+  - "Заказ получен"
+min_basket_size: 2
