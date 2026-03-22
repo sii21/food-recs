@@ -1,5 +1,7 @@
 """CLI entry point for food-recs package"""
 
+from pathlib import Path
+
 import fire
 import hydra
 
@@ -7,18 +9,23 @@ from food_recs.inference import run_inference
 from food_recs.training import train_models
 from food_recs.visualization import generate_plots
 
+# Resolve config directory relative to the project root (one level up from this file)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_CONFIG_DIR = str(_PROJECT_ROOT / "configs")
+
 
 class Commands:
     """CLI commands for food recommendation system"""
 
-    def train(self, config_path: str = "configs", config_name: str = "train"):
+    def train(self, config_path: str = _DEFAULT_CONFIG_DIR, config_name: str = "train"):
         """Train recommendation models
 
         Args:
-            config_path: Path to config directory
+            config_path: Absolute path to config directory
             config_name: Name of config file (without .yaml)
         """
-        with hydra.initialize(version_base=None, config_path=f"../{config_path}"):
+        config_path = str(Path(config_path).resolve())
+        with hydra.initialize_config_dir(version_base=None, config_dir=config_path):
             cfg = hydra.compose(config_name=config_name)
             train_models(cfg)
 
@@ -34,9 +41,10 @@ class Commands:
             basket = []
         run_inference(basket, model, top_k)
 
-    def visualize(self, config_path: str = "configs", config_name: str = "train"):
+    def visualize(self, config_path: str = _DEFAULT_CONFIG_DIR, config_name: str = "train"):
         """Generate visualization plots for model evaluation"""
-        with hydra.initialize(version_base=None, config_path=f"../{config_path}"):
+        config_path = str(Path(config_path).resolve())
+        with hydra.initialize_config_dir(version_base=None, config_dir=config_path):
             cfg = hydra.compose(config_name=config_name)
             generate_plots(cfg)
 

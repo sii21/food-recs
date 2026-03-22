@@ -1,7 +1,17 @@
 # Data configuration
-data_path: "data/orders_with_status.csv"
-separator: ";"
+data_path: "data/orders.csv"
+separator: ","
+date_column: "created_at"
+item_id_column: "order_item_oms_id"
 success_statuses:
   - "Заказ доставлен"
   - "Заказ получен"
 min_basket_size: 2
+chunksize: 500000
+cache_path: "artifacts/data_cache.pkl"
+
+# Temporal split parameters
+temporal_split:
+  train_days: 30
+  test_days: 7
+  oot_days: 7

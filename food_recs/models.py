@@ -4,7 +4,10 @@ from collections import defaultdict
 from itertools import combinations
 
 import numpy as np
+import scipy.sparse as sp
 from gensim.models import Word2Vec
+from implicit.als import AlternatingLeastSquares
+from implicit.bpr import BayesianPersonalizedRanking
 from omegaconf import DictConfig
 from tqdm import tqdm
 
@@ -106,6 +109,16 @@ class Item2VecRecommender:
     def fit(self, baskets: list[list[int]]) -> "Item2VecRecommender":
         sentences = [[str(item) for item in basket] for basket in baskets]
 
+        workers = self.workers
+        if workers > 1:
+            import warnings
+
+            warnings.warn(
+                f"Item2Vec workers={workers}: результаты будут недетерминированы. "
+                "Установите workers=1 для полной воспроизводимости",
+                stacklevel=2,
+            )
+
         self.model = Word2Vec(
             sentences=sentences,
             vector_size=self.vector_size,
@@ -113,7 +126,7 @@ class Item2VecRecommender:
             min_count=self.min_count,
             epochs=self.epochs,
             sg=self.sg,
-            workers=self.workers,
+            workers=workers,
             seed=42,
         )
         self.all_items = list(self.model.wv.key_to_index.keys())
@@ -140,4 +153,177 @@ class Item2VecRecommender:
                 if len(recs) >= k:
                     break
 
+        return recs
+
+
+class ImplicitALSRecommender:
+    """ALS collaborative filtering via implicit library
+
+    Each basket is treated as a separate "user" in the user-item matrix
+    """
+
+    def __init__(
+        self,
+        factors: int = 64,
+        regularization: float = 0.01,
+        iterations: int = 15,
+        alpha: float = 1.0,
+    ):
+        self.factors = factors
+        self.regularization = regularization
+        self.iterations = iterations
+        self.alpha = alpha
+        self.model: AlternatingLeastSquares | None = None
+        self.item_ids: list[int] = []
+        self.item_to_idx: dict[int, int] = {}
+
+    def _build_matrix(self, baskets: list[list[int]]) -> sp.csr_matrix:
+        """Build user-item sparse matrix from baskets"""
+        all_items = sorted({item for basket in baskets for item in basket})
+        self.item_ids = all_items
+        self.item_to_idx = {item: idx for idx, item in enumerate(all_items)}
+
+        rows, cols, data = [], [], []
+        for user_idx, basket in enumerate(baskets):
+            for item in basket:
+                if item in self.item_to_idx:
+                    rows.append(user_idx)
+                    cols.append(self.item_to_idx[item])
+                    data.append(1.0)
+
+        return sp.csr_matrix(
+            (data, (rows, cols)),
+            shape=(len(baskets), len(all_items)),
+        )
+
+    def fit(self, baskets: list[list[int]]) -> "ImplicitALSRecommender":
+        user_item = self._build_matrix(baskets)
+        # implicit expects item-user matrix for ALS
+        self.model = AlternatingLeastSquares(
+            factors=self.factors,
+            regularization=self.regularization,
+            iterations=self.iterations,
+            random_state=42,
+        )
+        # Confidence matrix = alpha * interaction
+        self.model.fit(user_item * self.alpha)
+        # Store user-item for recommend calls
+        self._user_item = user_item
+        return self
+
+    def recommend(self, basket: list[int], k: int = 10) -> list[int]:
+        if self.model is None:
+            return []
+
+        basket_set = set(basket)
+        # Build a sparse vector for this basket as a new "user"
+        cols = [self.item_to_idx[item] for item in basket if item in self.item_to_idx]
+        if not cols:
+            return []
+
+        user_vector = sp.csr_matrix(
+            ([1.0] * len(cols), ([0] * len(cols), cols)),
+            shape=(1, len(self.item_ids)),
+        )
+
+        # Get recommendations
+        item_indices, scores = self.model.recommend(
+            userid=0,
+            user_items=user_vector,
+            N=k + len(basket),
+            filter_already_liked_items=False,
+        )
+
+        recs = []
+        for idx in item_indices:
+            item_id = self.item_ids[idx]
+            if item_id not in basket_set:
+                recs.append(item_id)
+                if len(recs) >= k:
+                    break
+        return recs
+
+
+class ImplicitBPRRecommender:
+    """BPR (Bayesian Personalized Ranking) via implicit library
+
+    Each basket is treated as a separate "user" in the user-item matrix
+    Optimizes pairwise ranking loss (BPR)
+    """
+
+    def __init__(
+        self,
+        factors: int = 64,
+        learning_rate: float = 0.01,
+        regularization: float = 0.01,
+        iterations: int = 100,
+    ):
+        self.factors = factors
+        self.learning_rate = learning_rate
+        self.regularization = regularization
+        self.iterations = iterations
+        self.model: BayesianPersonalizedRanking | None = None
+        self.item_ids: list[int] = []
+        self.item_to_idx: dict[int, int] = {}
+
+    def _build_matrix(self, baskets: list[list[int]]) -> sp.csr_matrix:
+        """Build user-item sparse matrix from baskets"""
+        all_items = sorted({item for basket in baskets for item in basket})
+        self.item_ids = all_items
+        self.item_to_idx = {item: idx for idx, item in enumerate(all_items)}
+
+        rows, cols, data = [], [], []
+        for user_idx, basket in enumerate(baskets):
+            for item in basket:
+                if item in self.item_to_idx:
+                    rows.append(user_idx)
+                    cols.append(self.item_to_idx[item])
+                    data.append(1.0)
+
+        return sp.csr_matrix(
+            (data, (rows, cols)),
+            shape=(len(baskets), len(all_items)),
+        )
+
+    def fit(self, baskets: list[list[int]]) -> "ImplicitBPRRecommender":
+        user_item = self._build_matrix(baskets)
+        self.model = BayesianPersonalizedRanking(
+            factors=self.factors,
+            learning_rate=self.learning_rate,
+            regularization=self.regularization,
+            iterations=self.iterations,
+            random_state=42,
+        )
+        self.model.fit(user_item)
+        self._user_item = user_item
+        return self
+
+    def recommend(self, basket: list[int], k: int = 10) -> list[int]:
+        if self.model is None:
+            return []
+
+        basket_set = set(basket)
+        cols = [self.item_to_idx[item] for item in basket if item in self.item_to_idx]
+        if not cols:
+            return []
+
+        user_vector = sp.csr_matrix(
+            ([1.0] * len(cols), ([0] * len(cols), cols)),
+            shape=(1, len(self.item_ids)),
+        )
+
+        item_indices, scores = self.model.recommend(
+            userid=0,
+            user_items=user_vector,
+            N=k + len(basket),
+            filter_already_liked_items=False,
+        )
+
+        recs = []
+        for idx in item_indices:
+            item_id = self.item_ids[idx]
+            if item_id not in basket_set:
+                recs.append(item_id)
+                if len(recs) >= k:
+                    break
         return recs

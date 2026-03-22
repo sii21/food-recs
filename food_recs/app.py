@@ -9,6 +9,8 @@ import streamlit as st
 
 from food_recs.models import (
     CooccurrenceLiftRecommender,
+    ImplicitALSRecommender,
+    ImplicitBPRRecommender,
     Item2VecRecommender,
     TopPopularRecommender,
 )
@@ -24,6 +26,8 @@ def load_models() -> dict:
         "toppopular": TopPopularRecommender,
         "cooccurrencelift": CooccurrenceLiftRecommender,
         "item2vec": Item2VecRecommender,
+        "implicitals": ImplicitALSRecommender,
+        "implicitbpr": ImplicitBPRRecommender,
     }
 
     for name in model_classes:
@@ -74,7 +78,7 @@ def main() -> None:
     st.set_page_config(page_title="Food Recommender", page_icon="🍣", layout="wide")
 
     st.title("🍣 Рекомендация товаров для ресторана")
-    st.markdown("**Демонстрация работы трех алгоритмов рекомендаций**")
+    st.markdown("**Демонстрация работы алгоритмов рекомендаций**")
 
     models = load_models()
     item_mapping = load_item_mapping()
@@ -89,12 +93,19 @@ def main() -> None:
         st.header("📊 Качество моделей")
 
         if eval_results:
-            metrics_df = pd.DataFrame(eval_results).T
-            metrics_df = metrics_df[["hit@5", "hit@10", "mrr"]]
-            metrics_df.columns = ["Hit@5", "Hit@10", "MRR"]
-            metrics_df = metrics_df.round(4)
-
-            st.dataframe(metrics_df, width=300)
+            rows = []
+            for model, metrics in eval_results.items():
+                rows.append(
+                    {
+                        "Model": model,
+                        "Test Hit@5": metrics.get("test_hit@5", 0),
+                        "Test MRR": metrics.get("test_mrr", 0),
+                        "OOT Hit@5": metrics.get("oot_hit@5", 0),
+                        "OOT MRR": metrics.get("oot_mrr", 0),
+                    }
+                )
+            metrics_df = pd.DataFrame(rows).set_index("Model").round(4)
+            st.dataframe(metrics_df, width=350)
 
             st.markdown("---")
             st.markdown(
@@ -102,6 +113,8 @@ def main() -> None:
             **Метрики:**
             - **Hit@K** — доля случаев, когда скрытый товар попал в топ-K
             - **MRR** — средняя обратная позиция правильного товара
+            - **Test** — неделя сразу после обучения
+            - **OOT** — данные через 14 месяцев
             """
             )
 
@@ -142,9 +155,29 @@ def main() -> None:
         if not selected_items:
             st.info("👈 Выберите товары или нажмите 'Случайная корзина'")
         else:
-            tabs = st.tabs(["TopPopular (Baseline)", "Co-occurrence + Lift", "Item2Vec"])
-            model_keys = ["toppopular", "cooccurrencelift", "item2vec"]
-            model_display_names = ["TopPopular", "CooccurrenceLift", "Item2Vec"]
+            tabs = st.tabs(
+                [
+                    "TopPopular (Baseline)",
+                    "Co-occurrence + Lift",
+                    "Item2Vec",
+                    "ImplicitALS",
+                    "ImplicitBPR",
+                ]
+            )
+            model_keys = [
+                "toppopular",
+                "cooccurrencelift",
+                "item2vec",
+                "implicitals",
+                "implicitbpr",
+            ]
+            model_display_names = [
+                "TopPopular",
+                "CooccurrenceLift",
+                "Item2Vec",
+                "ImplicitALS",
+                "ImplicitBPR",
+            ]
 
             for tab, model_key, display_name in zip(
                 tabs, model_keys, model_display_names, strict=True
@@ -180,8 +213,10 @@ def main() -> None:
             if comparison_data:
                 comparison_df = pd.DataFrame(comparison_data)
                 pivot_df = comparison_df.pivot(index="Ранг", columns="Модель", values="Товар")
-                pivot_df = pivot_df[model_display_names]
-                st.dataframe(pivot_df, width=800)
+                available_cols = [c for c in model_display_names if c in pivot_df.columns]
+                if available_cols:
+                    pivot_df = pivot_df[available_cols]
+                st.dataframe(pivot_df, width=1000)
 
 
 if __name__ == "__main__":

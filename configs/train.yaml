@@ -6,4 +6,3 @@ defaults:
   - _self_
 
 seed: 42
-test_ratio: 0.2

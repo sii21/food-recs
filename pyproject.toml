@@ -18,6 +18,14 @@ dependencies = [
     "mlflow>=2.9.0",
     "kaleido>=1.0.0",
     "dvc[s3]>=3.64.0",
+    "implicit>=0.7.2",
+    "scipy>=1.11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
 ]
 
 [project.scripts]

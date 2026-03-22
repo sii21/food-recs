@@ -3,14 +3,12 @@
 import pickle
 from pathlib import Path
 
-from food_recs.data import ensure_data_available
-
 
 def load_model(model_name: str, models_dir: str = "artifacts/models"):
     """Load a trained model
 
     Args:
-        model_name: Name of model (popularity, cooccurrence, item2vec)
+        model_name: Name of model (popularity, cooccurrence, item2vec, implicit_als, implicit_bpr)
         models_dir: Directory with saved models
 
     Returns:
@@ -21,6 +19,8 @@ def load_model(model_name: str, models_dir: str = "artifacts/models"):
         "popularity": "toppopular_model.pkl",
         "cooccurrence": "cooccurrencelift_model.pkl",
         "item2vec": "item2vec_model.pkl",
+        "implicit_als": "implicitals_model.pkl",
+        "implicit_bpr": "implicitbpr_model.pkl",
     }
 
     if model_name not in model_map:
@@ -68,9 +68,6 @@ def run_inference(
     Returns:
         List of (item_id, item_name) tuples
     """
-    # Ensure data/models pulled via DVC (models may depend on data presence for mapping)
-    ensure_data_available()
-
     model = load_model(model_name, models_dir)
     item_mapping = load_item_mapping(models_dir)
 

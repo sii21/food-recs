@@ -17,5 +17,19 @@ item2vec:
   sg: 1  # Skip-gram
   workers: 4
 
+implicit_als:
+  enabled: true
+  factors: 64
+  regularization: 0.01
+  iterations: 15
+  alpha: 1.0
+
+implicit_bpr:
+  enabled: true
+  factors: 64
+  learning_rate: 0.01
+  regularization: 0.01
+  iterations: 100
+
 evaluation:
   k_values: [5, 10, 20]
