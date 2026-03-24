@@ -48,7 +48,7 @@ class TestCreateImprovementChart:
     def test_single_model_only_baseline(self):
         results = {"TopPopular": SAMPLE_RESULTS["TopPopular"]}
         fig = create_improvement_chart(results)
-        # No other models to compare — empty traces
+        # No other models to compare - empty traces
         assert len(fig.data) == 0 or fig.data is not None
 
 

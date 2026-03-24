@@ -23,6 +23,9 @@ __pycache__/
 
 # C extensions
 *.so
+.idea
+.vscode
+.agents
 
 # Distribution / packaging
 .Python

@@ -7,11 +7,11 @@ success_statuses:
   - "Заказ доставлен"
   - "Заказ получен"
 min_basket_size: 2
-chunksize: 500000
+chunksize: 2000000
 cache_path: "artifacts/data_cache.pkl"
 
 # Temporal split parameters
 temporal_split:
-  train_days: 30
-  test_days: 7
-  oot_days: 7
+  train_days: 365
+  test_days: 30
+  oot_days: 30
