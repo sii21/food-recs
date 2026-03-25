@@ -1,14 +1,18 @@
 """Recommendation models"""
 
+import re
 from collections import defaultdict
 from itertools import combinations
 
 import numpy as np
+import pandas as pd
 import scipy.sparse as sp
 from gensim.models import Word2Vec
 from implicit.als import AlternatingLeastSquares
 from implicit.bpr import BayesianPersonalizedRanking
 from omegaconf import DictConfig
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 
 
@@ -327,3 +331,242 @@ class ImplicitBPRRecommender:
                 if len(recs) >= k:
                     break
         return recs
+
+
+class SessionCooccurrenceRecommender:
+    """Session-based recommender that combines current basket with user purchase history
+
+    Uses co-occurrence Lift from the base model, but enriches the query
+    with items from the user's historical purchases (previous orders)
+    """
+
+    def __init__(self, history_weight: float = 0.3, min_support: int = 2):
+        self.history_weight = history_weight
+        self.min_support = min_support
+        self.base_model = CooccurrenceLiftRecommender(min_support=min_support)
+        self.user_histories: dict[int, list[int]] = {}
+
+    def fit(
+        self,
+        baskets: list[list[int]],
+        user_histories: dict[int, list[int]] | None = None,
+    ) -> "SessionCooccurrenceRecommender":
+        self.base_model.fit(baskets)
+        self.user_histories = user_histories or {}
+        return self
+
+    def recommend(
+        self,
+        basket: list[int],
+        k: int = 10,
+        user_id: int | None = None,
+    ) -> list[int]:
+        basket_set = set(basket)
+        candidate_scores: dict[int, float] = defaultdict(float)
+
+        # Scores from current basket (weight = 1.0)
+        for item in basket:
+            if item in self.base_model.lift_matrix:
+                for other_item, lift in self.base_model.lift_matrix[item].items():
+                    if other_item not in basket_set:
+                        candidate_scores[other_item] += lift
+
+        # Scores from user history (weight = history_weight)
+        if user_id is not None and user_id in self.user_histories:
+            history_items = [
+                it for it in self.user_histories[user_id] if it not in basket_set
+            ]
+            for item in history_items:
+                if item in self.base_model.lift_matrix:
+                    for other_item, lift in self.base_model.lift_matrix[item].items():
+                        if other_item not in basket_set:
+                            candidate_scores[other_item] += lift * self.history_weight
+
+        sorted_candidates = sorted(
+            candidate_scores.items(), key=lambda x: x[1], reverse=True
+        )
+        return [item for item, _ in sorted_candidates[:k]]
+
+
+class ContentBoostRecommender:
+    """Content-boosted recommender that combines co-occurrence with product metadata
+
+    Uses category affinity and TF-IDF text similarity on product descriptions
+    to re-rank and enrich co-occurrence recommendations
+    """
+
+    def __init__(
+        self,
+        cooc_weight: float = 0.6,
+        category_weight: float = 0.25,
+        text_weight: float = 0.15,
+        min_support: int = 2,
+    ):
+        self.cooc_weight = cooc_weight
+        self.category_weight = category_weight
+        self.text_weight = text_weight
+        self.min_support = min_support
+        self.base_model = CooccurrenceLiftRecommender(min_support=min_support)
+        self.item_categories: dict[int, str] = {}
+        self.category_affinity: dict[str, dict[str, float]] = {}
+        self._tfidf_matrix = None
+        self._tfidf_oms_ids: list[int] = []
+        self._tfidf_id_to_idx: dict[int, int] = {}
+
+    def fit(
+        self,
+        baskets: list[list[int]],
+        product_catalog: pd.DataFrame | None = None,
+    ) -> "ContentBoostRecommender":
+        self.base_model.fit(baskets)
+
+        if product_catalog is None or product_catalog.empty:
+            return self
+
+        # Build item -> category mapping
+        for _, row in product_catalog.iterrows():
+            self.item_categories[int(row["oms_id"])] = row["category"]
+
+        # Build category co-occurrence affinity from baskets
+        cat_pair_counts: dict[tuple[str, str], int] = defaultdict(int)
+        cat_counts: dict[str, int] = defaultdict(int)
+        total = 0
+        for basket_items in tqdm(baskets, desc="Building category affinity"):
+            cats = list({
+                self.item_categories[it]
+                for it in basket_items
+                if it in self.item_categories
+            })
+            for cat in cats:
+                cat_counts[cat] += 1
+            total += 1
+            for c1, c2 in combinations(sorted(cats), 2):
+                cat_pair_counts[(c1, c2)] += 1
+
+        self.category_affinity = defaultdict(dict)
+        for (c1, c2), count in cat_pair_counts.items():
+            if total > 0 and cat_counts[c1] > 0 and cat_counts[c2] > 0:
+                p1 = cat_counts[c1] / total
+                p2 = cat_counts[c2] / total
+                p_both = count / total
+                lift = p_both / (p1 * p2) if p1 * p2 > 0 else 0
+                self.category_affinity[c1][c2] = lift
+                self.category_affinity[c2][c1] = lift
+        # Same-category affinity = 1.5 (boost)
+        for cat in cat_counts:
+            self.category_affinity[cat][cat] = 1.5
+
+        # Build TF-IDF vectors for items with descriptions
+        items_with_desc = product_catalog[product_catalog["description"].str.len() > 0]
+        if len(items_with_desc) > 0:
+            tfidf = TfidfVectorizer(max_features=5000, stop_words=None)
+            vectors = tfidf.fit_transform(items_with_desc["description"])
+            oms_ids = items_with_desc["oms_id"].astype(int).tolist()
+            self._tfidf_matrix = vectors
+            self._tfidf_oms_ids = oms_ids
+            self._tfidf_id_to_idx = {oid: idx for idx, oid in enumerate(oms_ids)}
+
+        return self
+
+    def _text_similarity_scores(
+        self, basket: list[int], candidates: set[int]
+    ) -> dict[int, float]:
+        """Compute average text similarity between basket items and candidates"""
+        if self._tfidf_matrix is None or not candidates:
+            return {}
+
+        basket_idxs = [
+            self._tfidf_id_to_idx[it]
+            for it in basket
+            if it in self._tfidf_id_to_idx
+        ]
+        if not basket_idxs:
+            return {}
+
+        basket_vec = np.asarray(self._tfidf_matrix[basket_idxs].mean(axis=0))
+
+        cand_list = [c for c in candidates if c in self._tfidf_id_to_idx]
+        if not cand_list:
+            return {}
+
+        cand_idxs = [self._tfidf_id_to_idx[c] for c in cand_list]
+        cand_vecs = self._tfidf_matrix[cand_idxs]
+
+        sims = cosine_similarity(basket_vec, cand_vecs).flatten()
+        return dict(zip(cand_list, sims))
+
+    def _category_scores(
+        self, basket: list[int], candidates: set[int]
+    ) -> dict[int, float]:
+        """Compute category affinity scores for candidates"""
+        basket_cats = {
+            self.item_categories[it]
+            for it in basket
+            if it in self.item_categories
+        }
+        if not basket_cats:
+            return {}
+
+        scores = {}
+        for cand in candidates:
+            if cand not in self.item_categories:
+                continue
+            cand_cat = self.item_categories[cand]
+            max_affinity = 0.0
+            for bcat in basket_cats:
+                aff = self.category_affinity.get(bcat, {}).get(cand_cat, 0.0)
+                max_affinity = max(max_affinity, aff)
+            scores[cand] = max_affinity
+        return scores
+
+    def recommend(self, basket: list[int], k: int = 10) -> list[int]:
+        basket_set = set(basket)
+
+        # Step 1: Get co-occurrence candidates (wider pool)
+        cooc_scores: dict[int, float] = defaultdict(float)
+        for item in basket:
+            if item in self.base_model.lift_matrix:
+                for other_item, lift in self.base_model.lift_matrix[item].items():
+                    if other_item not in basket_set:
+                        cooc_scores[other_item] += lift
+
+        # Get top candidates from co-occurrence (wider than k)
+        top_cooc = sorted(cooc_scores.items(), key=lambda x: x[1], reverse=True)
+        candidates = {item for item, _ in top_cooc[: k * 5]}
+
+        if not candidates:
+            return [item for item, _ in top_cooc[:k]]
+
+        # Step 2: Normalize co-occurrence scores
+        max_cooc = max(cooc_scores[c] for c in candidates) if candidates else 1.0
+        norm_cooc = {c: cooc_scores.get(c, 0) / max_cooc for c in candidates}
+
+        # Step 3: Category affinity scores
+        cat_scores = self._category_scores(basket, candidates)
+        max_cat = max(cat_scores.values()) if cat_scores else 1.0
+        norm_cat = {
+            c: cat_scores.get(c, 0) / max_cat if max_cat > 0 else 0
+            for c in candidates
+        }
+
+        # Step 4: Text similarity scores
+        text_scores = self._text_similarity_scores(basket, candidates)
+        max_text = max(text_scores.values()) if text_scores else 1.0
+        norm_text = {
+            c: text_scores.get(c, 0) / max_text if max_text > 0 else 0
+            for c in candidates
+        }
+
+        # Step 5: Combine scores
+        final_scores = {}
+        for c in candidates:
+            final_scores[c] = (
+                self.cooc_weight * norm_cooc.get(c, 0)
+                + self.category_weight * norm_cat.get(c, 0)
+                + self.text_weight * norm_text.get(c, 0)
+            )
+
+        sorted_candidates = sorted(
+            final_scores.items(), key=lambda x: x[1], reverse=True
+        )
+        return [item for item, _ in sorted_candidates[:k]]

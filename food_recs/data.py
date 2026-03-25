@@ -68,17 +68,18 @@ def _validate_columns(df: pd.DataFrame, required: list[str], source: str) -> Non
 
 def load_orders_chunked(
     cfg: DictConfig,
-) -> tuple[dict[int, list[int]], dict[int, pd.Timestamp], dict[int, str]]:
+) -> tuple[dict[int, list[int]], dict[int, pd.Timestamp], dict[int, str], dict[int, int]]:
     """Load orders from CSV by chunks, building baskets incrementally
 
     Args:
         cfg: Hydra config with data settings
 
     Returns:
-        Tuple of (order_baskets, order_dates, item_mapping) where
+        Tuple of (order_baskets, order_dates, item_mapping, order_profiles) where
         order_baskets maps order_oms_id -> list of item IDs,
         order_dates maps order_oms_id -> earliest timestamp,
-        item_mapping maps item_id -> item_title
+        item_mapping maps item_id -> item_title,
+        order_profiles maps order_oms_id -> profile_id
     """
     data_path = Path(cfg.data.data_path)
     chunksize = cfg.data.get("chunksize", 500_000)
@@ -89,6 +90,7 @@ def load_orders_chunked(
     required_columns = [
         "order_status_title",
         "order_oms_id",
+        "profile_id",
         item_id_col,
         "order_item_title",
         date_col,
@@ -97,6 +99,7 @@ def load_orders_chunked(
     order_baskets: dict[int, list[int]] = defaultdict(list)
     order_dates: dict[int, pd.Timestamp] = {}
     item_mapping: dict[int, str] = {}
+    order_profiles: dict[int, int] = {}
 
     reader = pd.read_csv(data_path, sep=cfg.data.separator, chunksize=chunksize)
 
@@ -120,6 +123,9 @@ def load_orders_chunked(
             if oid not in order_dates or min_dt < order_dates[oid]:
                 order_dates[oid] = min_dt
 
+            if oid not in order_profiles:
+                order_profiles[oid] = int(group["profile_id"].iloc[0])
+
         # Item mapping
         names = (
             success.drop_duplicates(item_id_col)
@@ -130,12 +136,13 @@ def load_orders_chunked(
             if iid not in item_mapping:
                 item_mapping[int(iid)] = title
 
-    return dict(order_baskets), order_dates, item_mapping
+    return dict(order_baskets), order_dates, item_mapping, order_profiles
 
 
 def temporal_split(
     order_baskets: dict[int, list[int]],
     order_dates: dict[int, pd.Timestamp],
+    order_profiles: dict[int, int] | None = None,
     train_days: int = 30,
     test_days: int = 7,
     oot_days: int = 7,
@@ -148,12 +155,14 @@ def temporal_split(
     pd.Timestamp,
     pd.Timestamp,
     pd.Timestamp,
+    dict[int, list[int]],
 ]:
     """Split baskets by time into train / test / OOT
 
     Args:
         order_baskets: order_oms_id -> list of item IDs
         order_dates: order_oms_id -> timestamp
+        order_profiles: order_oms_id -> profile_id (optional)
         train_days: Number of days for training period
         test_days: Number of days for test period
         oot_days: Number of days for OOT period (from the end of data)
@@ -161,7 +170,9 @@ def temporal_split(
 
     Returns:
         Tuple of (train_baskets, test_baskets, oot_baskets,
-                  train_end, test_end, oot_start, data_end)
+                  train_end, test_end, oot_start, data_end,
+                  user_histories)
+        user_histories maps profile_id -> aggregated list of item IDs from train
     """
     if not order_dates:
         raise ValueError("No order dates provided")
@@ -177,6 +188,9 @@ def temporal_split(
     train_baskets = []
     test_baskets = []
     oot_baskets = []
+    test_profiles: list[int | None] = []
+    oot_profiles: list[int | None] = []
+    user_histories: dict[int, list[int]] = defaultdict(list)
 
     for oid, dt in order_dates.items():
         basket = order_baskets[oid]
@@ -185,13 +199,23 @@ def temporal_split(
         if len(basket) < min_basket_size:
             continue
 
+        profile_id = order_profiles.get(oid) if order_profiles else None
+
         if dt < train_end:
             train_baskets.append(basket)
+            # Build user purchase history from train data
+            if profile_id is not None:
+                user_histories[profile_id].extend(basket)
         elif dt < test_end:
             test_baskets.append(basket)
+            test_profiles.append(profile_id)
 
         if dt >= oot_start:
             oot_baskets.append(basket)
+            oot_profiles.append(profile_id)
+
+    # Deduplicate user histories
+    user_histories = {uid: list(dict.fromkeys(items)) for uid, items in user_histories.items()}
 
     print(
         f"Data period: {data_start.date()} → {data_end.date()} ({(data_end - data_start).days} days)"
@@ -199,6 +223,8 @@ def temporal_split(
     print(f"Train: {data_start.date()} → {train_end.date()} | {len(train_baskets):,} baskets")
     print(f"Test:  {train_end.date()} → {test_end.date()} | {len(test_baskets):,} baskets")
     print(f"OOT:   {oot_start.date()} → {data_end.date()} | {len(oot_baskets):,} baskets")
+    if user_histories:
+        print(f"User histories: {len(user_histories):,} profiles")
 
     return (
         train_baskets,
@@ -208,10 +234,17 @@ def temporal_split(
         test_end,
         oot_start,
         data_end,
+        user_histories,
+        test_profiles,
+        oot_profiles,
     )
 
 
-def make_leave_one_out(baskets: list[list[int]], seed: int = 42) -> list[tuple[list[int], int]]:
+def make_leave_one_out(
+    baskets: list[list[int]],
+    seed: int = 42,
+    profile_ids: list[int | None] | None = None,
+) -> list[tuple[list[int], int, int | None]]:
     """Create leave-one-out test data from baskets
 
     For each basket with >=2 items, hold out one random item
@@ -219,36 +252,78 @@ def make_leave_one_out(baskets: list[list[int]], seed: int = 42) -> list[tuple[l
     Args:
         baskets: List of baskets (each is list of item IDs)
         seed: Random seed
+        profile_ids: Optional parallel list of profile IDs for each basket
 
     Returns:
-        List of (input_basket, held_out_item) tuples
+        List of (input_basket, held_out_item, profile_id) tuples
     """
     import numpy as np
 
     rng = np.random.default_rng(seed)
     test_data = []
 
-    for basket in baskets:
+    for i, basket in enumerate(baskets):
         if len(basket) < 2:
             continue
         held_out_idx = rng.integers(len(basket))
         held_out_item = basket[held_out_idx]
         input_basket = basket[:held_out_idx] + basket[held_out_idx + 1 :]
-        test_data.append((input_basket, held_out_item))
+        pid = profile_ids[i] if profile_ids is not None else None
+        test_data.append((input_basket, held_out_item, pid))
 
     return test_data
 
 
+def load_product_catalog(catalog_path: str = "data/products.csv") -> pd.DataFrame:
+    """Load product catalog with categories and descriptions
+
+    Args:
+        catalog_path: Path to products CSV
+
+    Returns:
+        DataFrame with columns: oms_id, name, description, category
+    """
+    path = Path(catalog_path)
+    if not path.exists():
+        print(f"Product catalog not found at {path}, skipping")
+        return pd.DataFrame()
+
+    df = pd.read_csv(path)
+    df = df.rename(columns={
+        "Бэк ID": "back_id",
+        "OMS ID": "oms_id",
+        "Название": "name",
+        "Описание": "description",
+        "Категория": "category",
+    })
+    # Очистка HTML-тегов из описаний
+    import re
+
+    df["description"] = df["description"].fillna("").apply(
+        lambda x: re.sub(r"<[^>]+>", "", x).strip()
+    )
+    print(f"Loaded product catalog: {len(df)} items, {df['category'].nunique()} categories")
+    return df
+
+
 def prepare_data(
     cfg: DictConfig,
-) -> tuple[list[list[int]], list[list[int]], list[list[int]], dict[int, str]]:
+) -> tuple[
+    list[list[int]],
+    list[list[int]],
+    list[list[int]],
+    dict[int, str],
+    dict[int, list[int]],
+    pd.DataFrame,
+]:
     """Full data preparation pipeline with temporal split
 
     Args:
         cfg: Hydra config
 
     Returns:
-        Tuple of (train_baskets, test_baskets, oot_baskets, item_mapping)
+        Tuple of (train_baskets, test_baskets, oot_baskets,
+                  item_mapping, user_histories, product_catalog)
     """
     cache_path = Path(cfg.data.get("cache_path", "artifacts/data_cache.pkl"))
 
@@ -256,25 +331,44 @@ def prepare_data(
         print(f"Loading cached data from {cache_path}...")
         with open(cache_path, "rb") as f:
             cached = pickle.load(f)
+        product_catalog = load_product_catalog(
+            cfg.data.get("product_catalog_path", "data/products.csv")
+        )
         return (
             cached["train_baskets"],
             cached["test_baskets"],
             cached["oot_baskets"],
             cached["item_mapping"],
+            cached.get("user_histories", {}),
+            product_catalog,
+            cached.get("test_profiles", []),
+            cached.get("oot_profiles", []),
         )
 
     print("Loading data from CSV (this may take a few minutes for large files)...")
-    order_baskets, order_dates, item_mapping = load_orders_chunked(cfg)
+    order_baskets, order_dates, item_mapping, order_profiles = load_orders_chunked(cfg)
     print(f"Loaded {len(order_baskets):,} orders, {len(item_mapping):,} unique items")
 
     ts_cfg = cfg.data.temporal_split
-    train_baskets, test_baskets, oot_baskets, *_ = temporal_split(
+    split_result = temporal_split(
         order_baskets,
         order_dates,
+        order_profiles=order_profiles,
         train_days=ts_cfg.train_days,
         test_days=ts_cfg.test_days,
         oot_days=ts_cfg.oot_days,
         min_basket_size=cfg.data.min_basket_size,
+    )
+    train_baskets = split_result[0]
+    test_baskets = split_result[1]
+    oot_baskets = split_result[2]
+    user_histories = split_result[7]
+    test_profiles = split_result[8]
+    oot_profiles = split_result[9]
+
+    # Load product catalog
+    product_catalog = load_product_catalog(
+        cfg.data.get("product_catalog_path", "data/products.csv")
     )
 
     # Cache processed data
@@ -286,9 +380,15 @@ def prepare_data(
                 "test_baskets": test_baskets,
                 "oot_baskets": oot_baskets,
                 "item_mapping": item_mapping,
+                "user_histories": user_histories,
+                "test_profiles": test_profiles,
+                "oot_profiles": oot_profiles,
             },
             f,
         )
     print(f"Cached processed data to {cache_path}")
 
-    return train_baskets, test_baskets, oot_baskets, item_mapping
+    return (
+        train_baskets, test_baskets, oot_baskets, item_mapping,
+        user_histories, product_catalog, test_profiles, oot_profiles,
+    )

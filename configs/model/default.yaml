@@ -31,5 +31,17 @@ implicit_bpr:
   regularization: 0.01
   iterations: 100
 
+session_cooccurrence:
+  enabled: true
+  history_weight: 0.3
+  min_support: 2
+
+content_boost:
+  enabled: true
+  cooc_weight: 0.6
+  category_weight: 0.25
+  text_weight: 0.15
+  min_support: 2
+
 evaluation:
   k_values: [5, 10, 20]

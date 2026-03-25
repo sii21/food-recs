@@ -11,10 +11,12 @@ from tqdm import tqdm
 
 from food_recs.data import ensure_data_available, make_leave_one_out, prepare_data
 from food_recs.models import (
+    ContentBoostRecommender,
     CooccurrenceLiftRecommender,
     ImplicitALSRecommender,
     ImplicitBPRRecommender,
     Item2VecRecommender,
+    SessionCooccurrenceRecommender,
     TopPopularRecommender,
 )
 
@@ -56,8 +58,14 @@ def evaluate_model(
     results = {f"{split_name}_hit@{k}": 0.0 for k in k_values}
     mrr_sum = 0.0
 
-    for input_basket, held_out_item in tqdm(test_data, desc=f"Evaluating ({split_name})"):
-        recs = model.recommend(input_basket, k=max(k_values))
+    for entry in tqdm(test_data, desc=f"Evaluating ({split_name})"):
+        input_basket, held_out_item = entry[0], entry[1]
+        profile_id = entry[2] if len(entry) > 2 else None
+
+        if isinstance(model, SessionCooccurrenceRecommender) and profile_id is not None:
+            recs = model.recommend(input_basket, k=max(k_values), user_id=profile_id)
+        else:
+            recs = model.recommend(input_basket, k=max(k_values))
 
         if held_out_item in recs:
             rank = recs.index(held_out_item) + 1
@@ -115,6 +123,30 @@ def _build_models_list(cfg: DictConfig) -> list[tuple[str, object]]:
                 ),
             )
         )
+    if cfg.model.get("session_cooccurrence", {}).get("enabled", False):
+        sc_cfg = cfg.model.session_cooccurrence
+        models.append(
+            (
+                "SessionCooccurrence",
+                SessionCooccurrenceRecommender(
+                    history_weight=sc_cfg.get("history_weight", 0.3),
+                    min_support=sc_cfg.get("min_support", 2),
+                ),
+            )
+        )
+    if cfg.model.get("content_boost", {}).get("enabled", False):
+        cb_cfg = cfg.model.content_boost
+        models.append(
+            (
+                "ContentBoost",
+                ContentBoostRecommender(
+                    cooc_weight=cb_cfg.get("cooc_weight", 0.6),
+                    category_weight=cb_cfg.get("category_weight", 0.25),
+                    text_weight=cb_cfg.get("text_weight", 0.15),
+                    min_support=cb_cfg.get("min_support", 2),
+                ),
+            )
+        )
     return models
 
 
@@ -147,16 +179,23 @@ def train_models(cfg: DictConfig) -> dict[str, dict[str, float]]:
 
     # Prepare data with temporal split
     print("Loading and preparing data...")
-    train_baskets, test_baskets, oot_baskets, item_mapping = prepare_data(cfg)
+    (
+        train_baskets, test_baskets, oot_baskets, item_mapping,
+        user_histories, product_catalog, test_profiles, oot_profiles,
+    ) = prepare_data(cfg)
     print(f"Train: {len(train_baskets):,} baskets")
     print(f"Test:  {len(test_baskets):,} baskets")
     print(f"OOT:   {len(oot_baskets):,} baskets")
     print(f"Items: {len(item_mapping):,}")
+    if user_histories:
+        print(f"User histories: {len(user_histories):,} profiles")
+    if not product_catalog.empty:
+        print(f"Product catalog: {len(product_catalog):,} items")
 
     # Create leave-one-out evaluation data from test and OOT baskets
     seed = cfg.seed
-    test_data = make_leave_one_out(test_baskets, seed=seed)
-    oot_data = make_leave_one_out(oot_baskets, seed=seed)
+    test_data = make_leave_one_out(test_baskets, seed=seed, profile_ids=test_profiles or None)
+    oot_data = make_leave_one_out(oot_baskets, seed=seed, profile_ids=oot_profiles or None)
     print(f"\nLeave-one-out samples: test={len(test_data):,}, oot={len(oot_data):,}")
 
     # Create models directory
@@ -186,7 +225,13 @@ def train_models(cfg: DictConfig) -> dict[str, dict[str, float]]:
             print(f"\n{'=' * 40}")
             print(f"Training {name}...")
             t0 = time.time()
-            model.fit(train_baskets)
+            # Special fit for models that need extra data
+            if isinstance(model, SessionCooccurrenceRecommender):
+                model.fit(train_baskets, user_histories=user_histories)
+            elif isinstance(model, ContentBoostRecommender):
+                model.fit(train_baskets, product_catalog=product_catalog)
+            else:
+                model.fit(train_baskets)
             train_time = time.time() - t0
             print(f"Training time: {train_time:.1f}s")
 
