@@ -1,14 +1,21 @@
 """Data loading and preprocessing"""
 
+import logging
 import pickle
+import re
 import subprocess
 from collections import defaultdict
 from datetime import timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 from tqdm import tqdm
+
+_CACHE_VERSION = 2
+
+logger = logging.getLogger(__name__)
 
 
 def dvc_pull(targets: list[str] | None = None) -> None:
@@ -156,6 +163,8 @@ def temporal_split(
     pd.Timestamp,
     pd.Timestamp,
     dict[int, list[int]],
+    dict[int, int],
+    dict[int, int],
 ]:
     """Split baskets by time into train / test / OOT
 
@@ -257,8 +266,6 @@ def make_leave_one_out(
     Returns:
         List of (input_basket, held_out_item, profile_id) tuples
     """
-    import numpy as np
-
     rng = np.random.default_rng(seed)
     test_data = []
 
@@ -289,18 +296,18 @@ def load_product_catalog(catalog_path: str = "data/products.csv") -> pd.DataFram
         return pd.DataFrame()
 
     df = pd.read_csv(path)
-    df = df.rename(columns={
-        "Бэк ID": "back_id",
-        "OMS ID": "oms_id",
-        "Название": "name",
-        "Описание": "description",
-        "Категория": "category",
-    })
+    df = df.rename(
+        columns={
+            "Бэк ID": "back_id",
+            "OMS ID": "oms_id",
+            "Название": "name",
+            "Описание": "description",
+            "Категория": "category",
+        }
+    )
     # Очистка HTML-тегов из описаний
-    import re
-
-    df["description"] = df["description"].fillna("").apply(
-        lambda x: re.sub(r"<[^>]+>", "", x).strip()
+    df["description"] = (
+        df["description"].fillna("").apply(lambda x: re.sub(r"<[^>]+>", "", x).strip())
     )
     print(f"Loaded product catalog: {len(df)} items, {df['category'].nunique()} categories")
     return df
@@ -315,6 +322,8 @@ def prepare_data(
     dict[int, str],
     dict[int, list[int]],
     pd.DataFrame,
+    list[int | None],
+    list[int | None],
 ]:
     """Full data preparation pipeline with temporal split
 
@@ -323,27 +332,35 @@ def prepare_data(
 
     Returns:
         Tuple of (train_baskets, test_baskets, oot_baskets,
-                  item_mapping, user_histories, product_catalog)
+                  item_mapping, user_histories, product_catalog,
+                  test_profiles, oot_profiles)
     """
     cache_path = Path(cfg.data.get("cache_path", "artifacts/data_cache.pkl"))
 
     if cache_path.exists():
-        print(f"Loading cached data from {cache_path}...")
         with open(cache_path, "rb") as f:
             cached = pickle.load(f)
-        product_catalog = load_product_catalog(
-            cfg.data.get("product_catalog_path", "data/products.csv")
-        )
-        return (
-            cached["train_baskets"],
-            cached["test_baskets"],
-            cached["oot_baskets"],
-            cached["item_mapping"],
-            cached.get("user_histories", {}),
-            product_catalog,
-            cached.get("test_profiles", []),
-            cached.get("oot_profiles", []),
-        )
+        if cached.get("_cache_version") != _CACHE_VERSION:
+            logger.info(
+                "Cache version mismatch (got %s, expected %s), rebuilding...",
+                cached.get("_cache_version"),
+                _CACHE_VERSION,
+            )
+        else:
+            print(f"Loading cached data from {cache_path}...")
+            product_catalog = load_product_catalog(
+                cfg.data.get("product_catalog_path", "data/products.csv")
+            )
+            return (
+                cached["train_baskets"],
+                cached["test_baskets"],
+                cached["oot_baskets"],
+                cached["item_mapping"],
+                cached.get("user_histories", {}),
+                product_catalog,
+                cached.get("test_profiles", []),
+                cached.get("oot_profiles", []),
+            )
 
     print("Loading data from CSV (this may take a few minutes for large files)...")
     order_baskets, order_dates, item_mapping, order_profiles = load_orders_chunked(cfg)
@@ -376,6 +393,7 @@ def prepare_data(
     with open(cache_path, "wb") as f:
         pickle.dump(
             {
+                "_cache_version": _CACHE_VERSION,
                 "train_baskets": train_baskets,
                 "test_baskets": test_baskets,
                 "oot_baskets": oot_baskets,
@@ -389,6 +407,12 @@ def prepare_data(
     print(f"Cached processed data to {cache_path}")
 
     return (
-        train_baskets, test_baskets, oot_baskets, item_mapping,
-        user_histories, product_catalog, test_profiles, oot_profiles,
+        train_baskets,
+        test_baskets,
+        oot_baskets,
+        item_mapping,
+        user_histories,
+        product_catalog,
+        test_profiles,
+        oot_profiles,
     )

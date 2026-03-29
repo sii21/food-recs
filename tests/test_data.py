@@ -27,9 +27,9 @@ class TestMakeLeaveOneOut:
         baskets = [[1, 2, 3], [4, 5]]
         result = make_leave_one_out(baskets, seed=42)
         assert len(result) == 2
-        for input_basket, held_out in result:
+        for idx, (input_basket, held_out, _profile_id) in enumerate(result):
             assert held_out not in input_basket
-            assert len(input_basket) == len(baskets[result.index((input_basket, held_out))]) - 1
+            assert len(input_basket) == len(baskets[idx]) - 1
 
     def test_single_item_basket_skipped(self):
         baskets = [[1], [2, 3]]
@@ -50,14 +50,14 @@ class TestMakeLeaveOneOut:
         baskets = [[1, 2, 3, 4, 5]] * 10
         r1 = make_leave_one_out(baskets, seed=1)
         r2 = make_leave_one_out(baskets, seed=2)
-        held_out_1 = [h for _, h in r1]
-        held_out_2 = [h for _, h in r2]
+        held_out_1 = [h for _, h, _ in r1]
+        held_out_2 = [h for _, h, _ in r2]
         assert held_out_1 != held_out_2
 
     def test_held_out_item_was_in_original(self):
         baskets = [[10, 20, 30]]
         result = make_leave_one_out(baskets, seed=42)
-        input_basket, held_out = result[0]
+        input_basket, held_out, _profile_id = result[0]
         assert held_out in [10, 20, 30]
         assert set(input_basket) | {held_out} == {10, 20, 30}
 
@@ -77,8 +77,12 @@ class TestTemporalSplit:
     def test_split_sizes(self):
         order_baskets, order_dates = self._make_data()
         train, test, oot, *_ = temporal_split(
-            order_baskets, order_dates,
-            train_days=30, test_days=7, oot_days=7, min_basket_size=2,
+            order_baskets,
+            order_dates,
+            train_days=30,
+            test_days=7,
+            oot_days=7,
+            min_basket_size=2,
         )
         assert len(train) > 0
         assert len(test) > 0
@@ -86,9 +90,13 @@ class TestTemporalSplit:
 
     def test_no_temporal_overlap(self):
         order_baskets, order_dates = self._make_data()
-        train, test, oot, train_end, test_end, oot_start, data_end = temporal_split(
-            order_baskets, order_dates,
-            train_days=30, test_days=7, oot_days=7, min_basket_size=2,
+        train, test, oot, train_end, test_end, oot_start, data_end, *_ = temporal_split(
+            order_baskets,
+            order_dates,
+            train_days=30,
+            test_days=7,
+            oot_days=7,
+            min_basket_size=2,
         )
         # train_end < test_end <= oot_start (in general)
         assert train_end <= test_end
@@ -101,8 +109,12 @@ class TestTemporalSplit:
         order_baskets = {0: [1], 1: [1, 2, 3]}
         order_dates = {0: pd.Timestamp("2025-01-01"), 1: pd.Timestamp("2025-01-02")}
         train, test, oot, *_ = temporal_split(
-            order_baskets, order_dates,
-            train_days=30, test_days=7, oot_days=7, min_basket_size=2,
+            order_baskets,
+            order_dates,
+            train_days=30,
+            test_days=7,
+            oot_days=7,
+            min_basket_size=2,
         )
         # Basket with 1 item should be filtered out everywhere
         all_baskets = train + test + oot

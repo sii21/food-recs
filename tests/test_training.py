@@ -1,7 +1,5 @@
 """Tests for training evaluation logic"""
 
-import pytest
-
 from food_recs.models import TopPopularRecommender
 from food_recs.training import evaluate_model
 

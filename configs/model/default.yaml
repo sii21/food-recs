@@ -1,47 +1,120 @@
 # Model configuration
 models_dir: "artifacts/models"
 
+# Train only this model (exact name, e.g. TopPopular, CooccurrenceLift). Empty / null = all enabled models.
+# Does not run PopularityRerank or EnsembleRRF.
+train_only: null
+
 popularity:
-  enabled: true
+  enabled: false
 
 cooccurrence:
-  enabled: true
+  enabled: false
   min_support: 2
+  score_metric: "npmi"
 
 item2vec:
-  enabled: true
+  enabled: false
   vector_size: 64
   window: 5
   min_count: 2
   epochs: 20
   sg: 1  # Skip-gram
-  workers: 4
+  workers: 1  # 1 = deterministic; >1 faster but non-reproducible
 
 implicit_als:
-  enabled: true
+  enabled: false
   factors: 64
   regularization: 0.01
   iterations: 15
   alpha: 1.0
 
 implicit_bpr:
-  enabled: true
+  enabled: false
   factors: 64
   learning_rate: 0.01
   regularization: 0.01
   iterations: 100
 
 session_cooccurrence:
-  enabled: true
+  enabled: false
   history_weight: 0.3
   min_support: 2
 
 content_boost:
-  enabled: true
+  enabled: false
   cooc_weight: 0.6
   category_weight: 0.25
   text_weight: 0.15
   min_support: 2
+  score_metric: "npmi"
+  max_features: 10000
+  ngram_range: [1, 2]
+  sublinear_tf: true
+  use_russian_stopwords: true
+  tune_weights: true
+  # 0 = use full test L1O (~285k); else random subset per seed for fast tuning
+  tune_val_max_samples: 30000
+  cooc_grid: [0.5, 0.6, 0.7]
+  category_grid: [0.15, 0.25, 0.35]
+
+popularity_rerank:
+  enabled: true
+  pop_weight: 0.2
+
+profile_aggregation:
+  enabled: true
+  models: ["CooccurrenceLift", "Item2Vec", "ImplicitALS", "ContentBoost", "ItemGraphNode2Vec"]
+
+ensemble:
+  enabled: true
+  min_hit5: 0.02
+  weights:
+    TopPopular: 1.0
+    CooccurrenceLift: 1.2
+    ContentBoost: 1.0
+    PopularityRerank: 0.8
+
+item_graph:
+  enabled: true
+  min_support: 2
+  walk_length: 20
+  num_walks: 10
+  vector_size: 64
+  window: 5
+  epochs: 10
+  workers: 1
+
+sentence_transformer_boost:
+  enabled: true
+  cooc_weight: 0.5
+  category_weight: 0.2
+  text_weight: 0.3
+  min_support: 2
+  score_metric: "npmi"
+  st_model_name: "intfloat/multilingual-e5-base"
+  st_device: null  # null = auto (cuda if available, else cpu)
+  st_batch_size: 256
+  st_prefix: "query: "
+  tune_weights: true
+  tune_val_max_samples: 30000
+  cooc_grid: [0.3, 0.4, 0.5, 0.6]
+  category_grid: [0.1, 0.2, 0.3]
+
+lgbm_ensemble:
+  enabled: true
+  n_candidates: 50
+  n_estimators: 200
+  learning_rate: 0.05
+  max_train_samples: 50000
+  val_ratio: 0.3  # fraction of test L1O held out for honest LGBM evaluation
+
+debiased_evaluation:
+  enabled: true
+  n_buckets: 5
+  stratified_test: false  # true = use stratified L1O instead of full test set
+
+disable_zero_metric_models: true
 
 evaluation:
   k_values: [5, 10, 20]

@@ -1,7 +1,5 @@
 """Tests for recommendation models"""
 
-import pytest
-
 from food_recs.models import (
     CooccurrenceLiftRecommender,
     Item2VecRecommender,

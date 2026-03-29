@@ -2,8 +2,6 @@
 
 import warnings
 
-import pytest
-
 from food_recs.visualization import (
     create_degradation_chart,
     create_improvement_chart,
@@ -15,13 +13,25 @@ from food_recs.visualization import (
 
 SAMPLE_RESULTS = {
     "TopPopular": {
-        "test_hit@5": 0.15, "test_hit@10": 0.25, "test_hit@20": 0.35, "test_mrr": 0.10,
-        "oot_hit@5": 0.12, "oot_hit@10": 0.20, "oot_hit@20": 0.30, "oot_mrr": 0.08,
+        "test_hit@5": 0.15,
+        "test_hit@10": 0.25,
+        "test_hit@20": 0.35,
+        "test_mrr": 0.10,
+        "oot_hit@5": 0.12,
+        "oot_hit@10": 0.20,
+        "oot_hit@20": 0.30,
+        "oot_mrr": 0.08,
         "train_time_s": 1.0,
     },
     "CooccurrenceLift": {
-        "test_hit@5": 0.10, "test_hit@10": 0.18, "test_hit@20": 0.28, "test_mrr": 0.07,
-        "oot_hit@5": 0.09, "oot_hit@10": 0.16, "oot_hit@20": 0.25, "oot_mrr": 0.06,
+        "test_hit@5": 0.10,
+        "test_hit@10": 0.18,
+        "test_hit@20": 0.28,
+        "test_mrr": 0.07,
+        "oot_hit@5": 0.09,
+        "oot_hit@10": 0.16,
+        "oot_hit@20": 0.25,
+        "oot_mrr": 0.06,
         "train_time_s": 5.0,
     },
 }

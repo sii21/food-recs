@@ -21,6 +21,10 @@ def load_model(model_name: str, models_dir: str = "artifacts/models"):
         "item2vec": "item2vec_model.pkl",
         "implicit_als": "implicitals_model.pkl",
         "implicit_bpr": "implicitbpr_model.pkl",
+        "content_boost": "contentboost_model.pkl",
+        "popularity_rerank": "popularityrerank_model.pkl",
+        "item_graph": "itemgraphnode2vec_model.pkl",
+        "ensemble": "ensemblerrf_model.pkl",
     }
 
     if model_name not in model_map:

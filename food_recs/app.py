@@ -8,12 +8,18 @@ import pandas as pd
 import streamlit as st
 
 from food_recs.models import (
+    ContentBoostRecommender,
     CooccurrenceLiftRecommender,
+    EnsembleRecommender,
     ImplicitALSRecommender,
     ImplicitBPRRecommender,
     Item2VecRecommender,
+    ItemGraphNode2VecRecommender,
+    PopularityRerankRecommender,
     TopPopularRecommender,
 )
+from food_recs.lgbm_ensemble import LGBMEnsembleRecommender
+from food_recs.sentence_transformer_model import SentenceTransformerBoostRecommender
 
 MODELS_DIR = Path("artifacts/models")
 
@@ -28,6 +34,12 @@ def load_models() -> dict:
         "item2vec": Item2VecRecommender,
         "implicitals": ImplicitALSRecommender,
         "implicitbpr": ImplicitBPRRecommender,
+        "contentboost": ContentBoostRecommender,
+        "popularityrerank": PopularityRerankRecommender,
+        "itemgraphnode2vec": ItemGraphNode2VecRecommender,
+        "ensemblerrf": EnsembleRecommender,
+        "stboost": SentenceTransformerBoostRecommender,
+        "lgbmensemble": LGBMEnsembleRecommender,
     }
 
     for name in model_classes:
@@ -162,6 +174,12 @@ def main() -> None:
                     "Item2Vec",
                     "ImplicitALS",
                     "ImplicitBPR",
+                    "ContentBoost",
+                    "PopularityRerank",
+                    "ItemGraphNode2Vec",
+                    "EnsembleRRF",
+                    "STBoost",
+                    "LGBMEnsemble",
                 ]
             )
             model_keys = [
@@ -170,6 +188,12 @@ def main() -> None:
                 "item2vec",
                 "implicitals",
                 "implicitbpr",
+                "contentboost",
+                "popularityrerank",
+                "itemgraphnode2vec",
+                "ensemblerrf",
+                "stboost",
+                "lgbmensemble",
             ]
             model_display_names = [
                 "TopPopular",
@@ -177,6 +201,12 @@ def main() -> None:
                 "Item2Vec",
                 "ImplicitALS",
                 "ImplicitBPR",
+                "ContentBoost",
+                "PopularityRerank",
+                "ItemGraphNode2Vec",
+                "EnsembleRRF",
+                "STBoost",
+                "LGBMEnsemble",
             ]
 
             for tab, model_key, display_name in zip(
