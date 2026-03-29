@@ -20,11 +20,11 @@ def _try_import_lightgbm():
         import lightgbm as lgb
 
         return lgb
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "lightgbm is required for LGBMEnsembleRecommender. "
             "Install with: pip install lightgbm>=3.3.2"
-        )
+        ) from err
 
 
 class LGBMEnsembleRecommender:

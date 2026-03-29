@@ -58,7 +58,7 @@ class TestDebiasedEvaluator:
 
     def test_bucket_assignment(self):
         assert len(self.evaluator.item_to_bucket) > 0
-        for item, bucket in self.evaluator.item_to_bucket.items():
+        for _item, bucket in self.evaluator.item_to_bucket.items():
             assert 0 <= bucket < 3
 
     def test_evaluate_returns_standard_metrics(self):
