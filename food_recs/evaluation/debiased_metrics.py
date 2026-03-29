@@ -47,10 +47,7 @@ def _compute_popularity_buckets(
                 item_to_bucket[item_id] = b
                 break
 
-    bucket_ranges = [
-        (float(thresholds[i]), float(thresholds[i + 1]))
-        for i in range(n_buckets)
-    ]
+    bucket_ranges = [(float(thresholds[i]), float(thresholds[i + 1])) for i in range(n_buckets)]
     return item_to_bucket, bucket_ranges
 
 
@@ -161,13 +158,11 @@ class DebiasedEvaluator:
             Dict with standard metrics + per-bucket metrics + debiased metrics
         """
         if not test_data:
-            return {f"{split_name}_hit@{k}": 0.0 for k in k_values} | {
-                f"{split_name}_mrr": 0.0
-            }
+            return {f"{split_name}_hit@{k}": 0.0 for k in k_values} | {f"{split_name}_mrr": 0.0}
 
         # Per-bucket accumulators
         bucket_hits: dict[int, dict[int, int]] = {
-            b: {k: 0 for k in k_values} for b in range(self.n_buckets)
+            b: dict.fromkeys(k_values, 0) for b in range(self.n_buckets)
         }
         bucket_mrr: dict[int, float] = defaultdict(float)
         bucket_counts: dict[int, int] = defaultdict(int)
@@ -184,7 +179,7 @@ class DebiasedEvaluator:
             t0 = time.perf_counter()
             recs = model.recommend(input_basket, k=max(k_values))
             total_reco_time += time.perf_counter() - t0
-            unique_recommended.update(recs[:max(k_values)])
+            unique_recommended.update(recs[: max(k_values)])
 
             bucket = self.item_to_bucket.get(held_out_item, -1)
 
@@ -226,16 +221,10 @@ class DebiasedEvaluator:
         active_buckets = [b for b in range(self.n_buckets) if bucket_counts.get(b, 0) > 0]
         if active_buckets:
             for k in k_values:
-                bucket_hit_rates = [
-                    bucket_hits[b][k] / bucket_counts[b]
-                    for b in active_buckets
-                ]
+                bucket_hit_rates = [bucket_hits[b][k] / bucket_counts[b] for b in active_buckets]
                 results[f"{split_name}_debiased_hit@{k}"] = float(np.mean(bucket_hit_rates))
 
-            bucket_mrr_rates = [
-                bucket_mrr[b] / bucket_counts[b]
-                for b in active_buckets
-            ]
+            bucket_mrr_rates = [bucket_mrr[b] / bucket_counts[b] for b in active_buckets]
             results[f"{split_name}_debiased_mrr"] = float(np.mean(bucket_mrr_rates))
 
         return results

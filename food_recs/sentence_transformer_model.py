@@ -92,7 +92,7 @@ class SentenceTransformerBoostRecommender:
         self,
         baskets: list[list[int]],
         product_catalog: pd.DataFrame | None = None,
-    ) -> "SentenceTransformerBoostRecommender":
+    ) -> SentenceTransformerBoostRecommender:
         self.base_model.fit(baskets)
 
         if product_catalog is None or product_catalog.empty:
@@ -155,9 +155,7 @@ class SentenceTransformerBoostRecommender:
 
         return self
 
-    def _text_similarity_scores(
-        self, basket: list[int], candidates: set[int]
-    ) -> dict[int, float]:
+    def _text_similarity_scores(self, basket: list[int], candidates: set[int]) -> dict[int, float]:
         """Compute average cosine similarity between basket items and candidates
         using Sentence Transformer embeddings
         """
@@ -228,9 +226,7 @@ class SentenceTransformerBoostRecommender:
         # Step 4: Text similarity scores (Sentence Transformer)
         text_scores = self._text_similarity_scores(basket, candidates)
         max_text = max(text_scores.values()) if text_scores else 1.0
-        norm_text = {
-            c: text_scores.get(c, 0) / max_text if max_text > 0 else 0 for c in candidates
-        }
+        norm_text = {c: text_scores.get(c, 0) / max_text if max_text > 0 else 0 for c in candidates}
 
         # Step 5: Combine scores
         final_scores = {}

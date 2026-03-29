@@ -61,9 +61,7 @@ class LGBMEnsembleRecommender:
         self.ranker = None
         self.feature_names: list[str] = []
 
-    def _get_candidates_with_scores(
-        self, basket: list[int]
-    ) -> dict[int, dict[str, float]]:
+    def _get_candidates_with_scores(self, basket: list[int]) -> dict[int, dict[str, float]]:
         """Get candidate items and their scores from all base models
 
         Returns:
@@ -117,7 +115,7 @@ class LGBMEnsembleRecommender:
         user_histories: dict[int, list[int]] | None = None,
         max_train_samples: int = 50000,
         seed: int = 42,
-    ) -> "LGBMEnsembleRecommender":
+    ) -> LGBMEnsembleRecommender:
         """Train the LightGBM ranker on leave-one-out data
 
         Args:
@@ -160,9 +158,7 @@ class LGBMEnsembleRecommender:
 
             # If held_out not in candidates, add it with zero scores
             if held_out_item not in candidate_scores:
-                fv = self._build_feature_vector(
-                    held_out_item, {}, input_basket, user_hist
-                )
+                fv = self._build_feature_vector(held_out_item, {}, input_basket, user_hist)
                 all_features.append(fv)
                 all_labels.append(1)
                 group_size += 1
@@ -198,9 +194,7 @@ class LGBMEnsembleRecommender:
             **self.lgbm_params,
         }
 
-        train_set = lgb.Dataset(
-            X, label=y, group=group_sizes, feature_name=self.feature_names
-        )
+        train_set = lgb.Dataset(X, label=y, group=group_sizes, feature_name=self.feature_names)
 
         self.ranker = lgb.train(
             params,
@@ -211,7 +205,7 @@ class LGBMEnsembleRecommender:
         # Feature importance
         importance = self.ranker.feature_importance(importance_type="gain")
         feat_imp = sorted(
-            zip(self.feature_names, importance),
+            zip(self.feature_names, importance, strict=False),
             key=lambda x: x[1],
             reverse=True,
         )
@@ -245,5 +239,5 @@ class LGBMEnsembleRecommender:
         X = df.values.astype(np.float32)
         preds = self.ranker.predict(X)
 
-        ranked = sorted(zip(item_ids, preds), key=lambda x: x[1], reverse=True)
+        ranked = sorted(zip(item_ids, preds, strict=False), key=lambda x: x[1], reverse=True)
         return [item_id for item_id, _ in ranked[:k]]

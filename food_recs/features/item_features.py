@@ -37,7 +37,7 @@ class ItemFeatureExtractor:
         self,
         train_baskets: list[list[int]],
         product_catalog: pd.DataFrame | None = None,
-    ) -> "ItemFeatureExtractor":
+    ) -> ItemFeatureExtractor:
         """Compute item statistics from training data and catalog
 
         Args:
@@ -63,14 +63,10 @@ class ItemFeatureExtractor:
         self.item_popularity_rank = {item: rank for rank, item in enumerate(sorted_items)}
 
         # Average basket size per item
-        self.avg_basket_size = {
-            item: float(np.mean(sizes)) for item, sizes in basket_sizes.items()
-        }
+        self.avg_basket_size = {item: float(np.mean(sizes)) for item, sizes in basket_sizes.items()}
 
         # Co-occurrence diversity
-        self.cooccurrence_diversity = {
-            item: len(cooc_set) for item, cooc_set in cooc_items.items()
-        }
+        self.cooccurrence_diversity = {item: len(cooc_set) for item, cooc_set in cooc_items.items()}
 
         # Catalog features
         if product_catalog is not None and not product_catalog.empty:
@@ -113,9 +109,7 @@ class ItemFeatureExtractor:
         features["category_size"] = float(self.category_sizes.get(cat, 0))
 
         features["avg_basket_size"] = self.avg_basket_size.get(item_id, 0.0)
-        features["cooccurrence_diversity"] = float(
-            self.cooccurrence_diversity.get(item_id, 0)
-        )
+        features["cooccurrence_diversity"] = float(self.cooccurrence_diversity.get(item_id, 0))
 
         return features
 

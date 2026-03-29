@@ -32,7 +32,7 @@ class UserFeatureExtractor:
         self,
         train_baskets: list[list[int]],
         item_categories: dict[int, str] | None = None,
-    ) -> "UserFeatureExtractor":
+    ) -> UserFeatureExtractor:
         """Compute item popularity from training baskets
 
         Args:

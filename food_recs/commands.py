@@ -23,8 +23,7 @@ def _load_hydra_cfg(config_path: str, config_name: str):
     config_path = str(Path(config_path).resolve())
     if not Path(config_path).is_dir():
         raise FileNotFoundError(
-            f"Config directory not found: {config_path}. "
-            f"Expected directory with {config_name}.yaml"
+            f"Config directory not found: {config_path}. Expected directory with {config_name}.yaml"
         )
     GlobalHydra.instance().clear()
     with hydra.initialize_config_dir(version_base=None, config_dir=config_path):

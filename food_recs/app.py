@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from food_recs.lgbm_ensemble import LGBMEnsembleRecommender
 from food_recs.models import (
     ContentBoostRecommender,
     CooccurrenceLiftRecommender,
@@ -18,7 +19,6 @@ from food_recs.models import (
     PopularityRerankRecommender,
     TopPopularRecommender,
 )
-from food_recs.lgbm_ensemble import LGBMEnsembleRecommender
 from food_recs.sentence_transformer_model import SentenceTransformerBoostRecommender
 
 MODELS_DIR = Path("artifacts/models")

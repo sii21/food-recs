@@ -294,7 +294,7 @@ def _tune_st_boost_weights(
         st_prefix=model.st_prefix,
     )
     base_candidate.fit(train_baskets, product_catalog=product_catalog)
-    
+
     # Cache the expensive parts
     cached_base_model = base_candidate.base_model
     cached_item_categories = base_candidate.item_categories
@@ -308,7 +308,7 @@ def _tune_st_boost_weights(
     print(f"Tuning STBoost weights ({total_combos} combinations)...")
     print(f"{'Combo':<8} {'Cooc':>6} {'Cat':>6} {'Text':>6} {'Hit@5':>8}")
     print("-" * 40)
-    
+
     combo_idx = 0
     for cooc_w in cooc_grid:
         for cat_w in cat_grid:
@@ -316,7 +316,7 @@ def _tune_st_boost_weights(
             if text_w < 0.0:
                 continue
             combo_idx += 1
-            
+
             # Create candidate with cached components (no re-encoding!)
             candidate = SentenceTransformerBoostRecommender(
                 cooc_weight=float(cooc_w),
@@ -337,7 +337,7 @@ def _tune_st_boost_weights(
             candidate._emb_oms_ids = cached_emb_oms_ids
             candidate._emb_id_to_idx = cached_emb_id_to_idx
             candidate._st_model = cached_st_model
-            
+
             metrics = evaluate_model(
                 candidate,
                 tune_data,
@@ -345,8 +345,10 @@ def _tune_st_boost_weights(
                 split_name="val",
             )
             hit5 = metrics.get("val_hit@5", 0.0)
-            print(f"{combo_idx}/{total_combos:<4} {cooc_w:>6.2f} {cat_w:>6.2f} {text_w:>6.2f} {hit5:>8.4f}")
-            
+            print(
+                f"{combo_idx}/{total_combos:<4} {cooc_w:>6.2f} {cat_w:>6.2f} {text_w:>6.2f} {hit5:>8.4f}"
+            )
+
             if hit5 > best_hit5:
                 best_hit5 = hit5
                 best = (float(cooc_w), float(cat_w), float(text_w))
@@ -355,7 +357,7 @@ def _tune_st_boost_weights(
     print(
         f"Best weights: cooc={best[0]:.2f}, category={best[1]:.2f}, text={best[2]:.2f}, val_hit@5={best_hit5:.4f}"
     )
-    
+
     # Return final model with best weights and cached components
     final_model = SentenceTransformerBoostRecommender(
         cooc_weight=best[0],
@@ -375,7 +377,7 @@ def _tune_st_boost_weights(
     final_model._emb_oms_ids = cached_emb_oms_ids
     final_model._emb_id_to_idx = cached_emb_id_to_idx
     final_model._st_model = cached_st_model
-    
+
     return final_model
 
 
@@ -725,7 +727,9 @@ def train_models(cfg: DictConfig) -> dict[str, dict[str, float]]:
                 rng_lgbm.shuffle(lgbm_indices)
                 n_val = max(1, int(len(lgbm_indices) * lgbm_val_ratio))
                 lgbm_val_idx = set(lgbm_indices[:n_val])
-                lgbm_train_data = [test_data[i] for i in range(len(test_data)) if i not in lgbm_val_idx]
+                lgbm_train_data = [
+                    test_data[i] for i in range(len(test_data)) if i not in lgbm_val_idx
+                ]
                 lgbm_val_data = [test_data[i] for i in lgbm_val_idx]
                 print(
                     f"LGBMEnsemble split: train={len(lgbm_train_data):,}, "
@@ -743,12 +747,18 @@ def train_models(cfg: DictConfig) -> dict[str, dict[str, float]]:
 
                 # Evaluate on held-out validation portion (no leakage)
                 test_metrics = evaluate_model(
-                    lgbm_model, lgbm_val_data, k_values,
-                    split_name="test", n_items_total=len(item_mapping),
+                    lgbm_model,
+                    lgbm_val_data,
+                    k_values,
+                    split_name="test",
+                    n_items_total=len(item_mapping),
                 )
                 oot_metrics = evaluate_model(
-                    lgbm_model, oot_data, k_values,
-                    split_name="oot", n_items_total=len(item_mapping),
+                    lgbm_model,
+                    oot_data,
+                    k_values,
+                    split_name="oot",
+                    n_items_total=len(item_mapping),
                 )
                 metrics = {**test_metrics, **oot_metrics, "train_time_s": train_time}
                 all_results["LGBMEnsemble"] = metrics
@@ -756,7 +766,7 @@ def train_models(cfg: DictConfig) -> dict[str, dict[str, float]]:
                 with open(models_dir / "lgbmensemble_model.pkl", "wb") as f:
                     pickle.dump(lgbm_model, f)
 
-                print(f"\nLGBMEnsemble Results:")
+                print("\nLGBMEnsemble Results:")
                 for metric_name, value in metrics.items():
                     print(f"  {metric_name}: {value:.4f}")
             else:
@@ -775,8 +785,11 @@ def train_models(cfg: DictConfig) -> dict[str, dict[str, float]]:
             print(f"{'=' * 60}")
             for name, model in trained_models.items():
                 db_metrics = debiased_eval.evaluate(
-                    model, test_data, k_values,
-                    split_name="test", n_items_total=len(item_mapping),
+                    model,
+                    test_data,
+                    k_values,
+                    split_name="test",
+                    n_items_total=len(item_mapping),
                 )
                 # Merge debiased metrics into all_results
                 for mk, mv in db_metrics.items():
@@ -849,9 +862,7 @@ def _print_summary(
         print(row)
 
     # Debiased summary (if available)
-    has_debiased = any(
-        "test_debiased_hit@5" in m for m in all_results.values()
-    )
+    has_debiased = any("test_debiased_hit@5" in m for m in all_results.values())
     if has_debiased:
         print(f"\n{'Model':<20} {'Debiased Hit@5':>14} {'Debiased MRR':>12}")
         print("-" * 50)

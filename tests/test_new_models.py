@@ -1,6 +1,5 @@
 """Tests for new production-grade recommender components"""
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -113,7 +112,9 @@ class TestUserFeatureExtractor:
         from food_recs.features.user_features import UserFeatureExtractor
 
         self.extractor = UserFeatureExtractor()
-        item_cats = {i: PRODUCT_CATALOG.set_index("oms_id").loc[i, "category"] for i in range(1, 11)}
+        item_cats = {
+            i: PRODUCT_CATALOG.set_index("oms_id").loc[i, "category"] for i in range(1, 11)
+        }
         self.extractor.fit(BASKETS, item_categories=item_cats)
 
     def test_extract_returns_dict(self):
